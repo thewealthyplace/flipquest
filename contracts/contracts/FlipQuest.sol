@@ -28,21 +28,42 @@ contract FlipQuest is Ownable, ReentrancyGuard {
 
     constructor(address _usdm) Ownable(msg.sender) { usdm = IERC20(_usdm); }
 
-    /// @notice Start a new game. Returns gameId and seed that defines card positions.
     function startGame(uint8 difficulty) external returns (uint256 gameId, bytes32 seed) {
         require(difficulty < 2, "Invalid difficulty");
         gameId = totalGames++;
         seed = keccak256(abi.encodePacked(block.prevrandao, msg.sender, gameId, block.timestamp));
-        games[gameId] = Game({
-            player: msg.sender, seed: seed, difficulty: difficulty,
-            startTime: uint32(block.timestamp), moves: 0, completed: false
-        });
+        games[gameId] = Game({ player: msg.sender, seed: seed, difficulty: difficulty,
+            startTime: uint32(block.timestamp), moves: 0, completed: false });
         playerGames[msg.sender].push(gameId);
-        if (!hasPlayed[msg.sender]) {
-            hasPlayed[msg.sender] = true;
-            players.push(msg.sender);
-        }
+        if (!hasPlayed[msg.sender]) { hasPlayed[msg.sender] = true; players.push(msg.sender); }
         stats[msg.sender].gamesPlayed++;
         emit GameStarted(gameId, msg.sender, difficulty, seed);
+    }
+
+    /// @notice Submit move count after matching all pairs. Scores and records personal best.
+    function finishGame(uint256 gameId, uint16 moves) external nonReentrant {
+        Game storage game = games[gameId];
+        require(game.player == msg.sender, "Not your game");
+        require(!game.completed, "Already completed");
+        uint8 minMoves = pairsCount[game.difficulty];
+        require(moves >= minMoves, "Impossible move count");
+        require(moves <= 500, "Move count too high");
+
+        game.completed = true;
+        game.moves = moves;
+        stats[msg.sender].gamesCompleted++;
+
+        uint256 score;
+        uint16 base = baseScore[game.difficulty];
+        if (moves <= minMoves) {
+            score = base;
+        } else {
+            uint256 penalty = uint256(moves - minMoves) * movePenalty;
+            score = penalty >= base ? 0 : base - penalty;
+        }
+        if (score > stats[msg.sender].bestScore) {
+            stats[msg.sender].bestScore = score;
+        }
+        emit GameCompleted(gameId, msg.sender, moves, score);
     }
 }
