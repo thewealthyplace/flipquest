@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @notice FlipQuest — on-chain memory card matching game on Celo.
+/// Board is seeded from block.prevrandao — provably fair, unique per game.
+/// Score formula: baseScore - movePenalty * max(0, moves - minPairs).
 contract FlipQuest is Ownable, ReentrancyGuard {
     IERC20 public immutable usdm;
 
@@ -40,7 +42,6 @@ contract FlipQuest is Ownable, ReentrancyGuard {
         emit GameStarted(gameId, msg.sender, difficulty, seed);
     }
 
-    /// @notice Submit move count after matching all pairs. Scores and records personal best.
     function finishGame(uint256 gameId, uint16 moves) external nonReentrant {
         Game storage game = games[gameId];
         require(game.player == msg.sender, "Not your game");
@@ -48,22 +49,35 @@ contract FlipQuest is Ownable, ReentrancyGuard {
         uint8 minMoves = pairsCount[game.difficulty];
         require(moves >= minMoves, "Impossible move count");
         require(moves <= 500, "Move count too high");
-
-        game.completed = true;
-        game.moves = moves;
+        game.completed = true; game.moves = moves;
         stats[msg.sender].gamesCompleted++;
-
         uint256 score;
         uint16 base = baseScore[game.difficulty];
-        if (moves <= minMoves) {
-            score = base;
-        } else {
+        if (moves <= minMoves) { score = base; }
+        else {
             uint256 penalty = uint256(moves - minMoves) * movePenalty;
             score = penalty >= base ? 0 : base - penalty;
         }
-        if (score > stats[msg.sender].bestScore) {
-            stats[msg.sender].bestScore = score;
-        }
+        if (score > stats[msg.sender].bestScore) { stats[msg.sender].bestScore = score; }
         emit GameCompleted(gameId, msg.sender, moves, score);
     }
+
+    function getTopPlayers(uint256 limit) external view returns (address[] memory top, uint256[] memory scores) {
+        uint256 count = players.length < limit ? players.length : limit;
+        top = new address[](count); scores = new uint256[](count);
+        address[] memory sorted = new address[](players.length);
+        for (uint256 i = 0; i < players.length; i++) sorted[i] = players[i];
+        for (uint256 i = 0; i < players.length; i++)
+            for (uint256 j = i + 1; j < players.length; j++)
+                if (stats[sorted[j]].bestScore > stats[sorted[i]].bestScore) {
+                    address tmp = sorted[i]; sorted[i] = sorted[j]; sorted[j] = tmp;
+                }
+        for (uint256 i = 0; i < count; i++) { top[i] = sorted[i]; scores[i] = stats[sorted[i]].bestScore; }
+    }
+
+    function getPlayerGames(address player) external view returns (uint256[] memory) {
+        return playerGames[player];
+    }
+
+    function totalPlayers() external view returns (uint256) { return players.length; }
 }
