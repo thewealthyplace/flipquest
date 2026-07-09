@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAccount, useWriteContract } from "wagmi";
 import { celo } from "wagmi/chains";
 import { parseEventLogs } from "viem";
@@ -15,7 +15,7 @@ interface ActiveGame { gameId: bigint; seed: `0x${string}`; difficulty: number }
 type TxState = "idle" | "pending" | "done";
 
 export default function Page() {
-  const { isConnecting } = useAccount();
+  const { isConnecting, isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
 
   const [screen, setScreen] = useState<Screen>("home");
@@ -24,6 +24,13 @@ export default function Page() {
   const [result, setResult] = useState<{ difficulty: number; moves: number } | null>(null);
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
+
+  useEffect(() => {
+    if (!isConnected) {
+      setScreen("home"); setActiveGame(null); setResult(null); setTxState("idle"); setTxHash(undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected]);
 
   async function handleSelectMode(difficulty: number) {
     setStarting(difficulty);
