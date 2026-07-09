@@ -1,93 +1,123 @@
 "use client";
 import { useState } from "react";
-import { useAccount } from "wagmi";
-import GameLobby from "@/components/GameLobby";
-import GameBoard from "@/components/GameBoard";
-import Leaderboard from "@/components/Leaderboard";
+import { useAccount, useWriteContract } from "wagmi";
+import { parseEventLogs } from "viem";
+import Header, { Screen } from "@/components/Header";
+import Home from "@/components/Home";
+import GameScreen from "@/components/GameScreen";
+import WinScreen from "@/components/WinScreen";
+import LeaderboardScreen from "@/components/LeaderboardScreen";
+import ProfileScreen from "@/components/ProfileScreen";
+import { FLIPQUEST_ADDRESS, FLIPQUEST_ABI } from "@/lib/contracts";
 
-type Phase =
-  | { tag: "lobby" }
-  | { tag: "playing"; gameId: bigint; seed: `0x${string}`; difficulty: number }
-  | { tag: "result"; score: number; moves: number; difficulty: number };
+interface ActiveGame { gameId: bigint; seed: `0x${string}`; difficulty: number }
+type TxState = "idle" | "pending" | "done";
 
-export default function Home() {
-  const { isConnected, isConnecting, address } = useAccount();
-  const [phase, setPhase] = useState<Phase>({ tag: "lobby" });
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
+export default function Page() {
+  const { isConnecting } = useAccount();
+  const { writeContractAsync } = useWriteContract();
 
-  if (isConnecting) return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-3">
-      <p className="text-gray-400 text-sm">Connecting wallet...</p>
-    </div>
-  );
+  const [screen, setScreen] = useState<Screen>("home");
+  const [starting, setStarting] = useState<number | null>(null);
+  const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
+  const [result, setResult] = useState<{ difficulty: number; moves: number } | null>(null);
+  const [txState, setTxState] = useState<TxState>("idle");
+  const [txHash, setTxHash] = useState<string>();
 
-  if (!isConnected) return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-3">
-      <h1 className="text-2xl font-bold text-purple-400">FlipQuest</h1>
-      <p className="text-gray-400 text-sm">Opening in MiniPay...</p>
-    </div>
-  );
+  async function handleSelectMode(difficulty: number) {
+    setStarting(difficulty);
+    try {
+      const hash = await writeContractAsync({
+        address: FLIPQUEST_ADDRESS, abi: FLIPQUEST_ABI,
+        functionName: "startGame", args: [difficulty],
+      });
+      const { waitForTransactionReceipt } = await import("wagmi/actions");
+      const { wagmiConfig } = await import("@/lib/wagmi");
+      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+      const logs = parseEventLogs({ abi: FLIPQUEST_ABI, eventName: "GameStarted", logs: receipt.logs });
+      if (logs.length === 0) throw new Error("GameStarted event not found");
+      const { gameId, seed } = logs[0].args as { gameId: bigint; seed: `0x${string}`; difficulty: number };
+      setActiveGame({ gameId, seed, difficulty });
+      setTxState("idle"); setTxHash(undefined);
+      setScreen("game");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setStarting(null);
+    }
+  }
+
+  function handleWin(moves: number) {
+    if (!activeGame) return;
+    setResult({ difficulty: activeGame.difficulty, moves });
+    setScreen("win");
+  }
+
+  function handleQuit() {
+    setActiveGame(null);
+    setScreen("home");
+  }
+
+  async function handleSubmit() {
+    if (!activeGame || !result) return;
+    setTxState("pending");
+    try {
+      const hash = await writeContractAsync({
+        address: FLIPQUEST_ADDRESS, abi: FLIPQUEST_ABI,
+        functionName: "finishGame", args: [activeGame.gameId, result.moves],
+      });
+      setTxHash(hash);
+      setTxState("done");
+    } catch (err) {
+      console.error(err);
+      setTxState("idle");
+    }
+  }
+
+  function handlePlayAgain() {
+    if (!activeGame) { setScreen("home"); return; }
+    handleSelectMode(activeGame.difficulty);
+  }
+
+  if (isConnecting) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <p className="text-cream/50 text-sm font-body">Connecting wallet…</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen max-w-md mx-auto px-4 pb-8">
-      <header className="pt-5 pb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-purple-400">FlipQuest</h1>
-          <p className="text-xs text-gray-500">Memory card game · Celo</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {address && (
-            <span className="text-[10px] text-gray-600 font-mono">
-              {address.slice(0, 6)}...{address.slice(-4)}
-            </span>
-          )}
-          {phase.tag !== "playing" && (
-            <button
-              onClick={() => setShowLeaderboard(v => !v)}
-              className="text-xs text-gray-400 border border-gray-700 px-3 py-1.5 rounded-lg"
-            >
-              {showLeaderboard ? "Back" : "Rankings"}
-            </button>
-          )}
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col items-center overflow-x-hidden">
+      <Header screen={screen} onNav={setScreen} />
 
-      {showLeaderboard && phase.tag !== "playing" ? (
-        <Leaderboard />
-      ) : phase.tag === "lobby" ? (
-        <GameLobby
-          onGameStarted={(gameId, seed, difficulty) => {
-            setPhase({ tag: "playing", gameId, seed, difficulty });
-            setShowLeaderboard(false);
-          }}
+      {screen === "home" && <Home onSelectMode={handleSelectMode} starting={starting} />}
+
+      {screen === "game" && activeGame && (
+        <GameScreen
+          key={activeGame.gameId.toString()}
+          seed={activeGame.seed}
+          difficulty={activeGame.difficulty}
+          onWin={handleWin}
+          onQuit={handleQuit}
         />
-      ) : phase.tag === "playing" ? (
-        <GameBoard
-          gameId={phase.gameId}
-          seed={phase.seed}
-          difficulty={phase.difficulty}
-          onComplete={(score, moves) =>
-            setPhase({ tag: "result", score, moves, difficulty: phase.difficulty })
-          }
-        />
-      ) : (
-        <div className="flex flex-col items-center gap-6 pt-12">
-          <div className="text-center">
-            <p className="text-xs text-gray-500 mb-1">Final Score</p>
-            <p className="text-5xl font-bold text-purple-400">{phase.score}</p>
-            <p className="text-sm text-gray-400 mt-2">{phase.moves} moves</p>
-          </div>
-          <div className="w-full bg-gray-900 rounded-2xl p-4 text-center text-xs text-gray-500">
-            Score saved on-chain
-          </div>
-          <button
-            onClick={() => setPhase({ tag: "lobby" })}
-            className="w-full py-3 bg-purple-700 hover:bg-purple-600 rounded-xl font-bold text-white"
-          >
-            Play Again
-          </button>
-        </div>
       )}
+
+      {screen === "win" && result && (
+        <WinScreen
+          difficulty={result.difficulty}
+          moves={result.moves}
+          txState={txState}
+          txHash={txHash}
+          onSubmit={handleSubmit}
+          onPlayAgain={handlePlayAgain}
+          onLeaderboard={() => setScreen("board")}
+        />
+      )}
+
+      {screen === "board" && <LeaderboardScreen />}
+
+      {screen === "profile" && <ProfileScreen onGoHome={() => setScreen("home")} />}
     </div>
   );
 }
