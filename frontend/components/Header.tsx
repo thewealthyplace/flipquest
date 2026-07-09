@@ -1,5 +1,5 @@
 "use client";
-import { useAccount, useConnect } from "wagmi";
+import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { shortAddr } from "@/lib/contracts";
 
 export type Screen = "home" | "game" | "win" | "board" | "profile";
@@ -12,6 +12,7 @@ interface Props {
 export default function Header({ screen, onNav }: Props) {
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending } = useConnect();
+  const { disconnect } = useDisconnect();
 
   const navItem = (label: string, target: Screen, active: boolean) => (
     <button
@@ -49,9 +50,16 @@ export default function Header({ screen, onNav }: Props) {
             {navItem("Ranks", "board", screen === "board")}
             {navItem("Me", "profile", screen === "profile")}
           </nav>
-          <div className="flex items-center gap-2 py-1.5 px-3 rounded-full bg-green/[0.09] border border-green/25 shrink-0">
+          <div className="flex items-center gap-2 py-1.5 pl-3 pr-1.5 rounded-full bg-green/[0.09] border border-green/25 shrink-0">
             <span className="w-[7px] h-[7px] rounded-full bg-green" style={{ boxShadow: "0 0 8px #56DF7C" }} />
             <span className="font-mono text-[10px] sm:text-xs text-green/80">{address ? shortAddr(address) : ""}</span>
+            <button
+              onClick={() => disconnect()}
+              title="Disconnect wallet"
+              className="flex items-center justify-center w-5 h-5 rounded-full text-green/60 hover:text-red hover:bg-red/10 transition-colors cursor-pointer"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24"><path d="M6 6 L18 18 M18 6 L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg>
+            </button>
           </div>
         </>
       ) : isPending ? (
