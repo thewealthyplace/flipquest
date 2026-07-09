@@ -14,6 +14,7 @@ contract FlipQuest is Ownable, ReentrancyGuard {
     uint8[2]  public pairsCount  = [8, 10];
     uint16[2] public baseScore   = [1000, 2000];
     uint16    public movePenalty = 20;
+    uint8     public constant MAX_BATCH = 10;
 
     struct Game { address player; bytes32 seed; uint8 difficulty; uint32 startTime; uint16 moves; bool completed; }
     struct PlayerStats { uint256 bestScore; uint32 gamesPlayed; uint32 gamesCompleted; }
@@ -31,6 +32,34 @@ contract FlipQuest is Ownable, ReentrancyGuard {
     constructor(address _usdm) Ownable(msg.sender) { usdm = IERC20(_usdm); }
 
     function startGame(uint8 difficulty) external returns (uint256 gameId, bytes32 seed) {
+        (gameId, seed) = _startGame(difficulty);
+    }
+
+    /// @notice Batch-open a session of games in a single transaction — one signature
+    ///         for the whole session instead of one per game.
+    function startGames(uint8[] calldata difficulties) external returns (uint256[] memory gameIds, bytes32[] memory seeds) {
+        require(difficulties.length > 0 && difficulties.length <= MAX_BATCH, "Invalid batch size");
+        gameIds = new uint256[](difficulties.length);
+        seeds = new bytes32[](difficulties.length);
+        for (uint256 i = 0; i < difficulties.length; i++) {
+            (gameIds[i], seeds[i]) = _startGame(difficulties[i]);
+        }
+    }
+
+    function finishGame(uint256 gameId, uint16 moves) external nonReentrant {
+        _finishGame(gameId, moves);
+    }
+
+    /// @notice Batch-submit results for a session of games in a single transaction.
+    function finishGames(uint256[] calldata gameIds, uint16[] calldata movesArr) external nonReentrant {
+        require(gameIds.length == movesArr.length, "Length mismatch");
+        require(gameIds.length > 0 && gameIds.length <= MAX_BATCH, "Invalid batch size");
+        for (uint256 i = 0; i < gameIds.length; i++) {
+            _finishGame(gameIds[i], movesArr[i]);
+        }
+    }
+
+    function _startGame(uint8 difficulty) internal returns (uint256 gameId, bytes32 seed) {
         require(difficulty < 2, "Invalid difficulty");
         gameId = totalGames++;
         seed = keccak256(abi.encodePacked(block.prevrandao, msg.sender, gameId, block.timestamp));
@@ -42,7 +71,7 @@ contract FlipQuest is Ownable, ReentrancyGuard {
         emit GameStarted(gameId, msg.sender, difficulty, seed);
     }
 
-    function finishGame(uint256 gameId, uint16 moves) external nonReentrant {
+    function _finishGame(uint256 gameId, uint16 moves) internal {
         Game storage game = games[gameId];
         require(game.player == msg.sender, "Not your game");
         require(!game.completed, "Already completed");
