@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useAccount, useWriteContract } from "wagmi";
+import { celo } from "wagmi/chains";
 import { parseEventLogs } from "viem";
 import Header, { Screen } from "@/components/Header";
 import Home from "@/components/Home";
@@ -28,7 +29,7 @@ export default function Page() {
     setStarting(difficulty);
     try {
       const hash = await writeContractAsync({
-        address: FLIPQUEST_ADDRESS, abi: FLIPQUEST_ABI,
+        address: FLIPQUEST_ADDRESS, abi: FLIPQUEST_ABI, chainId: celo.id,
         functionName: "startGame", args: [difficulty],
       });
       const { waitForTransactionReceipt } = await import("wagmi/actions");
@@ -63,7 +64,7 @@ export default function Page() {
     setTxState("pending");
     try {
       const hash = await writeContractAsync({
-        address: FLIPQUEST_ADDRESS, abi: FLIPQUEST_ABI,
+        address: FLIPQUEST_ADDRESS, abi: FLIPQUEST_ABI, chainId: celo.id,
         functionName: "finishGame", args: [activeGame.gameId, result.moves],
       });
       setTxHash(hash);
