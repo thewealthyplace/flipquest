@@ -6,5 +6,5 @@ export const wagmiConfig = createConfig({
   chains: [celo],
   connectors: [injected()],
   transports: { [celo.id]: http("https://forno.celo.org") },
-  ssr: false,
+  ssr: true,
 });
